@@ -19,14 +19,15 @@ class EstudioDICOM:
         self.tamano_voxel = None       # (alto, ancho, grosor) en mm
         self.matriz_pixeles = None     # arreglo (cortes, filas, columnas)
         self.volumen = None
-        self.volumen_corregido= None
-        self.imagen_rotada =None
-        self.angulo_aplicado=None
+        self.pixel_spacing_escalado = None
+        self.tamano_voxel_escalado = None
+        self.volumen_corregido = None
+        self.imagen_rotada = None
+        self.angulo_aplicado = None
         self.volumen_copia = None
         self.imagen_normalizada = None
         self.imagen_ecualizada = None
         self.corte_ecualizado = None
-
 
     @staticmethod
     def _posicion_en_eje(ds):
@@ -104,20 +105,28 @@ class EstudioDICOM:
         print("Tamaño del vóxel (mm):", self.tamano_voxel)
         print("Cantidad de cortes:", len(self.cortes))
         print("Forma de la matriz:", self.matriz_pixeles.shape)
-        return True
+
+        # Escalado al doble y reconstrucción 3D automáticos (punto 3)
+        return self.reconstruir_volumen()
 
     def reconstruir_volumen(self):
 
         if self.matriz_pixeles is None:
             print("Primero debes cargar las imágenes DICOM.")
-            return
+            return False
 
         imagenes = []
 
         for imagen in self.matriz_pixeles:
 
+            # cv2.resize no admite todos los tipos (por ejemplo int32)
+            if imagen.dtype not in (np.uint8, np.uint16, np.int16,
+                                    np.float32, np.float64):
+                imagen = imagen.astype(np.float32)
+
             alto, ancho = imagen.shape
 
+            # OpenCV recibe el tamaño como (ancho, alto)
             imagen_doble = cv2.resize(
                 imagen,
                 (ancho * 2, alto * 2),
@@ -128,8 +137,21 @@ class EstudioDICOM:
 
         self.volumen = np.stack(imagenes, axis=0)
 
+        # Al duplicar filas y columnas, cada píxel representa la mitad de mm
+        self.pixel_spacing_escalado = (
+            float(self.pixel_spacing[0]) / 2,
+            float(self.pixel_spacing[1]) / 2
+        )
+        self.tamano_voxel_escalado = (
+            self.pixel_spacing_escalado[0],
+            self.pixel_spacing_escalado[1],
+            self.slice_thickness    # el eje de los cortes no se escala
+        )
+
         print("Volumen 3D reconstruido correctamente.")
         print("Dimensiones del volumen:", self.volumen.shape)
+        print("Tamaño del vóxel escalado (mm):", self.tamano_voxel_escalado)
+        return True
 
     def corregirAngulo(self, angulo):
 
@@ -164,7 +186,7 @@ class EstudioDICOM:
         self.volumen_corregido = np.stack(cortes_rotados, axis=0)
         self.angulo_aplicado = angulo
 
-    # Corte central, útil para visualizar el resultado
+        # Corte central, útil para visualizar el resultado
         self.imagen_rotada = self.volumen_corregido[self.volumen_corregido.shape[0] // 2]
 
         print("Corrección de ángulo aplicada correctamente.")
@@ -173,7 +195,7 @@ class EstudioDICOM:
 
     def normalizarImagen(self, numero_corte, carpeta_salida="resultados", prefijo="estudio"):
 
-    # Usar el volumen corregido si existe; si no, el volumen escalado
+        # Usar el volumen corregido si existe; si no, el volumen escalado
         base = self.volumen_corregido if self.volumen_corregido is not None else self.volumen
 
         if base is None:
@@ -190,11 +212,11 @@ class EstudioDICOM:
             print("Corte fuera de rango. Valores válidos: 0 a", base.shape[0] - 1)
             return False
 
-    # Copia del volumen para no alterar el original
+        # Copia del volumen para no alterar el original
         self.volumen_copia = base.copy()
         imagen = self.volumen_copia[numero_corte]
 
-    # Normalizar a uint8 (0-255) y ecualizar
+        # Normalizar a uint8 (0-255) y ecualizar
         self.imagen_normalizada = cv2.normalize(
             imagen, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U
         )
@@ -226,6 +248,7 @@ class EstudioDICOM:
         cv2.imwrite(os.path.join(carpeta_salida, f"{prefijo}_ecualizada.png"), self.imagen_ecualizada)
 
         plt.show()
+        plt.close(fig)
 
         print("Imagen normalizada y ecualizada correctamente.")
         print("Tipo de dato:", self.imagen_ecualizada.dtype)

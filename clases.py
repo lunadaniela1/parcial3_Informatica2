@@ -33,6 +33,14 @@ class EstudioDICOM:
         self.indice_plano = None
         self.aspect_plano = None
         self.mm_por_pixel = None
+        self.separacion_cortes = None
+        self.plano_unit8 = None 
+        self.imagen_binaria = None
+        self.umbral_usado = None
+        self.imagen_apertura = None
+        self.kernel_usado = None
+        self.iteraciones_usadas = None
+
 
     @staticmethod
     def _posicion_en_eje(ds):
@@ -92,6 +100,28 @@ class EstudioDICOM:
 
         self.pixel_spacing = primer_corte.get("PixelSpacing", [1, 1])
         self.slice_thickness = float(primer_corte.get("SliceThickness", 1))
+
+        # Calcular la separación real entre cortes DICOM
+        self.separacion_cortes = self.slice_thickness
+
+        if len(self.cortes) > 1:
+            if all(
+                hasattr(ds, "ImagePositionPatient") and
+                hasattr(ds, "ImageOrientationPatient")
+                for ds in self.cortes
+            ):
+                posiciones = [
+                    self._posicion_en_eje(ds)
+                    for ds in self.cortes
+                ]
+
+                diferencias = np.abs(np.diff(posiciones))
+                diferencias = diferencias[diferencias > 0]
+
+                if len(diferencias) > 0:
+                    self.separacion_cortes = float(np.median(diferencias))
+
+        print("Separación entre cortes (mm):", self.separacion_cortes)
 
         self.tamano_voxel = (
             float(self.pixel_spacing[0]),   # alto
@@ -307,7 +337,7 @@ class EstudioDICOM:
 
         # Tamaño de píxel escalado (mm) y grosor del corte (mm)
         sp_fila, sp_col = self.pixel_spacing_escalado
-        grosor = self.slice_thickness
+        grosor = self.separacion_cortes
 
         if plano == "transversal":
             imagen = volumen[numero_corte, :, :]
@@ -331,4 +361,115 @@ class EstudioDICOM:
         print("Plano seleccionado:", plano, "- corte", numero_corte)
         print("Dimensiones:", imagen.shape)
         print("Aspect:", round(self.aspect_plano, 3))
+        return True
+
+    def binarizarImagen(self, umbral=None):
+
+        if self.plano_seleccionado is None:
+            print("Primero debes seleccionar un plano.")
+            return False
+
+        # Pedir el umbral hasta que sea válido (0 a 255)
+        while True:
+            if umbral is None:
+                umbral = input("Umbral (0 a 255): ")
+
+            try:
+                valor = int(umbral)
+            except (TypeError, ValueError):
+                print("El umbral debe ser un número entero.")
+                umbral = None
+                continue
+
+            if 0 <= valor <= 255:
+                umbral = valor
+                break
+
+            print("Umbral fuera de rango. Valores válidos: 0 a 255")
+            umbral = None
+
+        # Normalizar el plano a uint8 (se reutiliza después para dibujar en RGB)
+        self.plano_uint8 = cv2.normalize(
+            self.plano_seleccionado,
+            None,
+            0,
+            255,
+            cv2.NORM_MINMAX,
+            dtype=cv2.CV_8U
+        )
+
+        # INV: lo oscuro (huecos) queda en blanco
+        _, self.imagen_binaria = cv2.threshold(
+            self.plano_uint8,
+            umbral,
+            255,
+            cv2.THRESH_BINARY
+        )
+
+        self.umbral_usado = umbral
+
+        print("Imagen binarizada correctamente.")
+        print("Umbral utilizado:", umbral)
+        return True
+
+    def aperturaMorfologica(self, tamano_kernel=None, iteraciones=None):
+
+        if self.imagen_binaria is None:
+            print("Primero debes binarizar la imagen.")
+            return False
+
+        # Pedir el tamaño del kernel hasta que sea válido
+        while True:
+            if tamano_kernel is None:
+                tamano_kernel = input("Tamaño del kernel (entero mayor que 0): ")
+            try:
+                valor = int(tamano_kernel)
+            except (TypeError, ValueError):
+                print("El tamaño del kernel debe ser un número entero.")
+                tamano_kernel = None
+                continue
+            if valor >= 1:
+                tamano_kernel = valor
+                break
+            print("El tamaño del kernel debe ser mayor que cero.")
+            tamano_kernel = None
+
+        # Pedir las iteraciones hasta que sean válidas
+        while True:
+            if iteraciones is None:
+                iteraciones = input("Iteraciones (entero mayor que 0): ")
+            try:
+                valor = int(iteraciones)
+            except (TypeError, ValueError):
+                print("Las iteraciones deben ser un número entero.")
+                iteraciones = None
+                continue
+            if valor >= 1:
+                iteraciones = valor
+                break
+            print("Las iteraciones deben ser mayores que cero.")
+            iteraciones = None
+
+        # Crear el kernel cuadrado
+        kernel = np.ones((tamano_kernel, tamano_kernel), np.uint8)
+
+        # Apertura = erosión seguida de dilatación
+        self.imagen_apertura = cv2.morphologyEx(
+            self.imagen_binaria,
+            cv2.MORPH_OPEN,
+            kernel,
+            iterations=iteraciones
+        )
+
+        self.kernel_usado = tamano_kernel
+        self.iteraciones_usadas = iteraciones
+
+        print("Apertura morfológica aplicada correctamente.")
+        print("Tamaño del kernel:", tamano_kernel)
+        print("Iteraciones:", iteraciones)
+
+        if cv2.countNonZero(self.imagen_apertura) == 0:
+            print("Aviso: la apertura eliminó todo. Prueba un kernel o "
+                  "unas iteraciones más pequeñas.")
+
         return True

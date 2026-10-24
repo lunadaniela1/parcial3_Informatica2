@@ -48,7 +48,72 @@ while True:
 
 # Selección de plano (el método pide plano y corte hasta que sean válidos)
 if estudio.seleccionarPlano():
-    plt.imshow(estudio.plano_seleccionado, cmap="gray", aspect=estudio.aspect_plano)
+
+    plt.figure(figsize=(8, 6))
+    plt.imshow(
+        estudio.plano_seleccionado,
+        cmap="gray",
+        aspect=estudio.aspect_plano
+    )
     plt.title(f"Plano {estudio.nombre_plano} - corte {estudio.indice_plano}")
-    plt.savefig(f"resultados/T2_plano_{estudio.nombre_plano}_{estudio.indice_plano}.png", dpi=150)
+    plt.axis("off")
+    plt.savefig(
+        f"resultados/T2_plano_{estudio.nombre_plano}_{estudio.indice_plano}.png",
+        dpi=150
+    )
     plt.show()
+
+    if estudio.binarizarImagen():
+
+        plt.figure(figsize=(10, 5))
+
+        plt.subplot(1, 2, 1)
+        plt.imshow(estudio.plano_uint8, cmap="gray",
+                   aspect=estudio.aspect_plano)
+        plt.title("Plano original")
+        plt.axis("off")
+
+        plt.subplot(1, 2, 2)
+        plt.imshow(estudio.imagen_binaria, cmap="gray",
+                   aspect=estudio.aspect_plano)
+        plt.title(f"Imagen binarizada (umbral {estudio.umbral_usado})")
+        plt.axis("off")
+
+        plt.tight_layout()
+        plt.savefig(
+            f"resultados/T2_binarizacion_{estudio.nombre_plano}_{estudio.indice_plano}.png",
+            dpi=150
+        )
+        plt.show()
+                     # Aplicar apertura morfológica
+        if estudio.aperturaMorfologica():
+
+            plt.figure(figsize=(10, 5))
+
+            plt.subplot(1, 2, 1)
+            plt.imshow(
+                estudio.imagen_binaria,
+                cmap="gray",
+                aspect=estudio.aspect_plano
+            )
+            plt.title("Imagen binarizada")
+            plt.axis("off")
+
+            plt.subplot(1, 2, 2)
+            plt.imshow(
+                estudio.imagen_apertura,
+                cmap="gray",
+                aspect=estudio.aspect_plano
+            )
+            plt.title(f"Apertura (kernel {estudio.kernel_usado}, "
+                      f"iter. {estudio.iteraciones_usadas})")
+            plt.axis("off")
+
+            plt.tight_layout()
+
+            plt.savefig(
+                f"resultados/T2_apertura_{estudio.nombre_plano}_{estudio.indice_plano}.png",
+                dpi=150
+            )
+
+            plt.show()

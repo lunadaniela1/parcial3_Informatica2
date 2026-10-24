@@ -1,14 +1,11 @@
-
 import os
 import matplotlib.pyplot as plt
 from clases import EstudioDICOM
 
-# Crear el objeto y cargar las imágenes DICOM
+# Crear el objeto y cargar las imágenes DICOM (también reconstruye el volumen)
 estudio = EstudioDICOM("datos/T2")
-estudio.cargar_dicom()
-
-# Reconstruir el volumen 3D
-estudio.reconstruir_volumen()
+if not estudio.cargar_dicom():
+    raise SystemExit("No se pudo cargar el estudio.")
 
 # Corregir el ángulo
 estudio.corregirAngulo(30)
@@ -22,13 +19,11 @@ imagen_corregida = estudio.imagen_rotada
 # Crear figura con dos imágenes
 plt.figure(figsize=(10, 5))
 
-# Mostrar imagen original
 plt.subplot(1, 2, 1)
 plt.imshow(imagen_original, cmap="gray")
 plt.title("Imagen original")
 plt.axis("off")
 
-# Mostrar imagen rotada
 plt.subplot(1, 2, 2)
 plt.imshow(imagen_corregida, cmap="gray")
 plt.title(f"Imagen rotada {estudio.angulo_aplicado} grados")
@@ -36,14 +31,24 @@ plt.axis("off")
 
 plt.tight_layout()
 
-# Crear carpeta para guardar resultados
+# Guardar y mostrar
 os.makedirs("resultados", exist_ok=True)
-
-# Guardar la figura
 plt.savefig("resultados/T2_rotacion.png", dpi=150)
-
-# Mostrar la figura
 plt.show()
 
-corte = int(input(f"Corte a ecualizar (0 a {estudio.volumen.shape[0] - 1}): "))
-estudio.normalizarImagen(corte, prefijo="T2")
+# Ecualización de un corte elegido por el usuario
+# Ecualización de un corte elegido por el usuario
+while True:
+    try:
+        corte = int(input(f"Corte a ecualizar (0 a {estudio.volumen.shape[0] - 1}): "))
+        if estudio.normalizarImagen(corte, prefijo="T2"):
+            break
+    except ValueError:
+        print("Debes escribir un número entero.")
+
+# Selección de plano (el método pide plano y corte hasta que sean válidos)
+if estudio.seleccionarPlano():
+    plt.imshow(estudio.plano_seleccionado, cmap="gray", aspect=estudio.aspect_plano)
+    plt.title(f"Plano {estudio.nombre_plano} - corte {estudio.indice_plano}")
+    plt.savefig(f"resultados/T2_plano_{estudio.nombre_plano}_{estudio.indice_plano}.png", dpi=150)
+    plt.show()

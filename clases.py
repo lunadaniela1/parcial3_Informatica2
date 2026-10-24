@@ -28,6 +28,11 @@ class EstudioDICOM:
         self.imagen_normalizada = None
         self.imagen_ecualizada = None
         self.corte_ecualizado = None
+        self.plano_seleccionado = None
+        self.nombre_plano = None
+        self.indice_plano = None
+        self.aspect_plano = None
+        self.mm_por_pixel = None
 
     @staticmethod
     def _posicion_en_eje(ds):
@@ -252,4 +257,78 @@ class EstudioDICOM:
 
         print("Imagen normalizada y ecualizada correctamente.")
         print("Tipo de dato:", self.imagen_ecualizada.dtype)
+        return True
+
+
+    def seleccionarPlano(self, plano=None, numero_corte=None):
+
+        # Usar el volumen corregido si existe; si no, el escalado
+        volumen = self.volumen_corregido if self.volumen_corregido is not None else self.volumen
+
+        if volumen is None:
+            print("Primero debes cargar el volumen.")
+            return False
+
+        # --- Pedir el plano hasta que sea válido ---
+        planos_validos = ("transversal", "coronal", "sagital")
+
+        if plano is not None:
+            plano = str(plano).strip().lower()
+
+        while plano not in planos_validos:
+            if plano is not None:
+                print("Plano no válido. Usa: transversal, coronal o sagital.")
+            plano = input("Plano (transversal/coronal/sagital): ").strip().lower()
+
+        # Eje del volumen que recorre los cortes de cada plano
+        eje = {"transversal": 0, "coronal": 1, "sagital": 2}[plano]
+        maximo = volumen.shape[eje]
+
+        # --- Pedir el corte hasta que sea válido ---
+        while True:
+            if numero_corte is None:
+                numero_corte = input(
+                    f"Número de corte para el plano {plano} (0 a {maximo - 1}): "
+                )
+
+            try:
+                valor = int(numero_corte)
+            except (TypeError, ValueError):
+                print("El número de corte debe ser un entero.")
+                numero_corte = None
+                continue
+
+            if 0 <= valor < maximo:
+                numero_corte = valor
+                break
+
+            print(f"Corte fuera de rango. Valores válidos: 0 a {maximo - 1}")
+            numero_corte = None
+
+        # Tamaño de píxel escalado (mm) y grosor del corte (mm)
+        sp_fila, sp_col = self.pixel_spacing_escalado
+        grosor = self.slice_thickness
+
+        if plano == "transversal":
+            imagen = volumen[numero_corte, :, :]
+            self.aspect_plano = sp_fila / sp_col
+            self.mm_por_pixel = (sp_fila, sp_col)      # (alto, ancho)
+
+        elif plano == "coronal":
+            imagen = volumen[:, numero_corte, :]
+            self.aspect_plano = grosor / sp_col
+            self.mm_por_pixel = (grosor, sp_col)
+
+        else:  # sagital
+            imagen = volumen[:, :, numero_corte]
+            self.aspect_plano = grosor / sp_fila
+            self.mm_por_pixel = (grosor, sp_fila)
+
+        self.plano_seleccionado = imagen.copy()
+        self.nombre_plano = plano
+        self.indice_plano = numero_corte
+
+        print("Plano seleccionado:", plano, "- corte", numero_corte)
+        print("Dimensiones:", imagen.shape)
+        print("Aspect:", round(self.aspect_plano, 3))
         return True

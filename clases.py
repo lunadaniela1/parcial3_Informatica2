@@ -18,17 +18,23 @@ class EstudioDICOM:
         self.tamano_voxel = None       # (alto, ancho, grosor) en mm
         self.matriz_pixeles = None     # arreglo (cortes, filas, columnas)
         self.volumen = None
+        self.volumen_corregido= None
+        self.imagen_rotada =None
+        self.angulo_aplicado=None
+        
 
     @staticmethod
-    def _clave_orden(ds):
-        # Orden anatómico: posición en Z; si no existe, número de instancia
-        if hasattr(ds, "ImagePositionPatient"):
-            return float(ds.ImagePositionPatient[2])
-        return int(ds.get("InstanceNumber", 0))
+    def _posicion_en_eje(ds):
+        # Distancia del corte a lo largo de la normal del plano de imagen
+        orient = np.array(ds.ImageOrientationPatient, dtype=float)
+        normal = np.cross(orient[:3], orient[3:])
+        pos = np.array(ds.ImagePositionPatient, dtype=float)
+        return float(np.dot(pos, normal))
 
     def cargar_dicom(self):
         self.cortes = []  # evita duplicados si se llama dos veces
 
+        # 1. Leer los archivos
         for raiz, _, archivos in os.walk(self.ruta):
             for archivo in archivos:
                 ruta_archivo = os.path.join(raiz, archivo)
@@ -46,7 +52,7 @@ class EstudioDICOM:
             print("No se encontraron imágenes DICOM en:", self.ruta)
             return False
 
-        # Dejar solo los cortes con el mismo tamaño que el primero
+        # 2. Filtrar: dejar solo los cortes con el mismo tamaño que el primero
         filas_ref = int(self.cortes[0].Rows)
         columnas_ref = int(self.cortes[0].Columns)
         total = len(self.cortes)
@@ -58,9 +64,14 @@ class EstudioDICOM:
             print("Aviso: se descartaron", total - len(self.cortes),
                   "cortes de tamaño distinto.")
 
-        # Ordenar de forma anatómica
-        self.cortes.sort(key=self._clave_orden)
+        # 3. Ordenar (SOLO ESTE sort)
+        if all(hasattr(ds, "ImagePositionPatient") and
+               hasattr(ds, "ImageOrientationPatient") for ds in self.cortes):
+            self.cortes.sort(key=self._posicion_en_eje)
+        else:
+            self.cortes.sort(key=lambda ds: int(ds.get("InstanceNumber", 0)))
 
+        # 4. Leer los datos del estudio
         primer_corte = self.cortes[0]
 
         self.nombre_paciente = str(primer_corte.get("PatientName", "No disponible"))
@@ -77,7 +88,7 @@ class EstudioDICOM:
             self.slice_thickness            # grosor del corte
         )
 
-        # Matriz con TODOS los cortes ya ordenados
+        # 5. Matriz con TODOS los cortes ya ordenados
         self.matriz_pixeles = np.stack([c.pixel_array for c in self.cortes])
 
         print("Estudio cargado correctamente.")
@@ -88,4 +99,69 @@ class EstudioDICOM:
         print("Tamaño del vóxel (mm):", self.tamano_voxel)
         print("Cantidad de cortes:", len(self.cortes))
         print("Forma de la matriz:", self.matriz_pixeles.shape)
+        return True
+
+    def reconstruir_volumen(self):
+
+        if self.matriz_pixeles is None:
+            print("Primero debes cargar las imágenes DICOM.")
+            return
+
+        imagenes = []
+
+        for imagen in self.matriz_pixeles:
+
+            alto, ancho = imagen.shape
+
+            imagen_doble = cv2.resize(
+                imagen,
+                (ancho * 2, alto * 2),
+                interpolation=cv2.INTER_LINEAR
+            )
+
+            imagenes.append(imagen_doble)
+
+        self.volumen = np.stack(imagenes, axis=0)
+
+        print("Volumen 3D reconstruido correctamente.")
+        print("Dimensiones del volumen:", self.volumen.shape)
+
+    def corregirAngulo(self, angulo):
+
+        if self.volumen is None:
+            print("Primero debes reconstruir el volumen.")
+            return False
+
+        try:
+            angulo = float(angulo)
+        except (TypeError, ValueError):
+            print("El ángulo debe ser un valor numérico.")
+            return False
+
+        alto, ancho = self.volumen.shape[1], self.volumen.shape[2]
+
+        # Centro = punto medio de la imagen, como (x, y)
+        centro = (ancho / 2, alto / 2)
+
+        # Ángulo positivo = giro antihorario en OpenCV
+        matriz_rotacion = cv2.getRotationMatrix2D(centro, angulo, 1.0)
+
+        cortes_rotados = []
+        for corte in self.volumen:
+            rotado = cv2.warpAffine(
+                corte,
+                matriz_rotacion,
+                (ancho, alto),
+                flags=cv2.INTER_LINEAR
+            )
+            cortes_rotados.append(rotado)
+
+        self.volumen_corregido = np.stack(cortes_rotados, axis=0)
+        self.angulo_aplicado = angulo
+
+    # Corte central, útil para visualizar el resultado
+        self.imagen_rotada = self.volumen_corregido[self.volumen_corregido.shape[0] // 2]
+
+        print("Corrección de ángulo aplicada correctamente.")
+        print("Ángulo aplicado:", angulo)
         return True

@@ -2,6 +2,7 @@ import os
 import pydicom
 import numpy as np
 import cv2
+import matplotlib.pyplot as plt
 
 
 class EstudioDICOM:
@@ -21,7 +22,11 @@ class EstudioDICOM:
         self.volumen_corregido= None
         self.imagen_rotada =None
         self.angulo_aplicado=None
-        
+        self.volumen_copia = None
+        self.imagen_normalizada = None
+        self.imagen_ecualizada = None
+        self.corte_ecualizado = None
+
 
     @staticmethod
     def _posicion_en_eje(ds):
@@ -164,4 +169,64 @@ class EstudioDICOM:
 
         print("Corrección de ángulo aplicada correctamente.")
         print("Ángulo aplicado:", angulo)
+        return True
+
+    def normalizarImagen(self, numero_corte, carpeta_salida="resultados", prefijo="estudio"):
+
+    # Usar el volumen corregido si existe; si no, el volumen escalado
+        base = self.volumen_corregido if self.volumen_corregido is not None else self.volumen
+
+        if base is None:
+            print("Primero debes cargar el estudio y reconstruir el volumen.")
+            return False
+
+        try:
+            numero_corte = int(numero_corte)
+        except (TypeError, ValueError):
+            print("El número de corte debe ser un entero.")
+            return False
+
+        if not 0 <= numero_corte < base.shape[0]:
+            print("Corte fuera de rango. Valores válidos: 0 a", base.shape[0] - 1)
+            return False
+
+    # Copia del volumen para no alterar el original
+        self.volumen_copia = base.copy()
+        imagen = self.volumen_copia[numero_corte]
+
+    # Normalizar a uint8 (0-255) y ecualizar
+        self.imagen_normalizada = cv2.normalize(
+            imagen, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U
+        )
+        self.imagen_ecualizada = cv2.equalizeHist(self.imagen_normalizada)
+        self.corte_ecualizado = numero_corte
+
+        # Graficar: imágenes arriba, histogramas abajo
+        fig, ejes = plt.subplots(2, 2, figsize=(10, 8))
+
+        ejes[0, 0].imshow(self.imagen_normalizada, cmap="gray")
+        ejes[0, 0].set_title(f"Corte {numero_corte} normalizado (uint8)")
+        ejes[0, 0].axis("off")
+
+        ejes[0, 1].imshow(self.imagen_ecualizada, cmap="gray")
+        ejes[0, 1].set_title("Imagen ecualizada")
+        ejes[0, 1].axis("off")
+
+        ejes[1, 0].hist(self.imagen_normalizada.ravel(), bins=256, range=(0, 255))
+        ejes[1, 0].set_title("Histograma antes de ecualizar")
+
+        ejes[1, 1].hist(self.imagen_ecualizada.ravel(), bins=256, range=(0, 255))
+        ejes[1, 1].set_title("Histograma después de ecualizar")
+
+        plt.tight_layout()
+
+        # Guardar el gráfico y la imagen ecualizada
+        os.makedirs(carpeta_salida, exist_ok=True)
+        plt.savefig(os.path.join(carpeta_salida, f"{prefijo}_ecualizacion_grafico.png"), dpi=150)
+        cv2.imwrite(os.path.join(carpeta_salida, f"{prefijo}_ecualizada.png"), self.imagen_ecualizada)
+
+        plt.show()
+
+        print("Imagen normalizada y ecualizada correctamente.")
+        print("Tipo de dato:", self.imagen_ecualizada.dtype)
         return True

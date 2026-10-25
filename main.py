@@ -13,15 +13,12 @@ def menu():
 
 
 def main():
-    # Las rutas se calculan junto a este archivo, así funciona sin importar
-    # desde qué carpeta se ejecute el programa.
     base = os.path.dirname(os.path.abspath(__file__))
     ruta_datos = os.path.join(base, "datos")
     ruta_resultados = os.path.join(base, "resultados")
 
     gestor = GestorEstudios(ruta_base=ruta_datos)
 
-    # Crear la carpeta de resultados si no existe
     os.makedirs(ruta_resultados, exist_ok=True)
 
     if not gestor.estudios_disponibles:

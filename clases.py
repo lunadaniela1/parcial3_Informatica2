@@ -4,7 +4,6 @@ import numpy as np
 import cv2
 import matplotlib.pyplot as plt
 
-
 class EstudioDICOM:
 
     def __init__(self, ruta):
@@ -14,10 +13,10 @@ class EstudioDICOM:
         self.modalidad = None
         self.filas = None
         self.columnas = None
-        self.pixel_spacing = None      # [fila, columna] en mm
+        self.pixel_spacing = None
         self.slice_thickness = None
-        self.tamano_voxel = None       # (alto, ancho, grosor) en mm
-        self.matriz_pixeles = None     # arreglo (cortes, filas, columnas)
+        self.tamano_voxel = None
+        self.matriz_pixeles = None
         self.volumen = None
         self.pixel_spacing_escalado = None
         self.tamano_voxel_escalado = None
@@ -45,26 +44,22 @@ class EstudioDICOM:
         self.imagen_anotada = None
         self.imagen_recorte = None
 
-
     @staticmethod
     def _posicion_en_eje(ds):
-        # Distancia del corte a lo largo de la normal del plano de imagen
         orient = np.array(ds.ImageOrientationPatient, dtype=float)
         normal = np.cross(orient[:3], orient[3:])
         pos = np.array(ds.ImagePositionPatient, dtype=float)
         return float(np.dot(pos, normal))
 
     def cargar_dicom(self):
-        self.cortes = []  # evita duplicados si se llama dos veces
+        self.cortes = []
 
-        # 1. Leer los archivos
         for raiz, _, archivos in os.walk(self.ruta):
             for archivo in archivos:
                 ruta_archivo = os.path.join(raiz, archivo)
                 try:
                     ds = pydicom.dcmread(ruta_archivo)
                 except Exception:
-                    # no es un DICOM (o está dañado): se ignora
                     continue
                 if not hasattr(ds, "PixelData"):
                     continue
@@ -75,7 +70,6 @@ class EstudioDICOM:
             print("No se encontraron imágenes DICOM en:", self.ruta)
             return False
 
-        # 2. Filtrar: dejar solo los cortes con el mismo tamaño que el primero
         filas_ref = int(self.cortes[0].Rows)
         columnas_ref = int(self.cortes[0].Columns)
         total = len(self.cortes)
@@ -87,14 +81,12 @@ class EstudioDICOM:
             print("Aviso: se descartaron", total - len(self.cortes),
                   "cortes de tamaño distinto.")
 
-        # 3. Ordenar (SOLO ESTE sort)
         if all(hasattr(ds, "ImagePositionPatient") and
                hasattr(ds, "ImageOrientationPatient") for ds in self.cortes):
             self.cortes.sort(key=self._posicion_en_eje)
         else:
             self.cortes.sort(key=lambda ds: int(ds.get("InstanceNumber", 0)))
 
-        # 4. Leer los datos del estudio
         primer_corte = self.cortes[0]
 
         self.nombre_paciente = str(primer_corte.get("PatientName", "No disponible"))
@@ -105,7 +97,6 @@ class EstudioDICOM:
         self.pixel_spacing = primer_corte.get("PixelSpacing", [1, 1])
         self.slice_thickness = float(primer_corte.get("SliceThickness", 1))
 
-        # Calcular la separación real entre cortes DICOM
         self.separacion_cortes = self.slice_thickness
 
         if len(self.cortes) > 1:
@@ -128,16 +119,15 @@ class EstudioDICOM:
         print("Separación entre cortes (mm):", self.separacion_cortes)
 
         self.tamano_voxel = (
-            float(self.pixel_spacing[0]),   # alto
-            float(self.pixel_spacing[1]),   # ancho
-            self.slice_thickness            # grosor del corte
+            float(self.pixel_spacing[0]),
+            float(self.pixel_spacing[1]),
+            self.slice_thickness
         )
 
-        # 5. Matriz con TODOS los cortes ya ordenados
         try:
             self.matriz_pixeles = np.stack([c.pixel_array for c in self.cortes])
         except Exception as error:
-            print("No se pudo leer la matriz de píxeles (¿DICOM comprimido?):", error)
+            print("No se pudo leer la matriz de píxeles:", error)
             return False
 
         print("Estudio cargado correctamente.")
@@ -149,11 +139,9 @@ class EstudioDICOM:
         print("Cantidad de cortes:", len(self.cortes))
         print("Forma de la matriz:", self.matriz_pixeles.shape)
 
-        # Escalado al doble y reconstrucción 3D automáticos (punto 3)
         return self.reconstruir_volumen()
 
     def reconstruir_volumen(self):
-
         if self.matriz_pixeles is None:
             print("Primero debes cargar las imágenes DICOM.")
             return False
@@ -161,15 +149,12 @@ class EstudioDICOM:
         imagenes = []
 
         for imagen in self.matriz_pixeles:
-
-            # cv2.resize no admite todos los tipos (por ejemplo int32)
             if imagen.dtype not in (np.uint8, np.uint16, np.int16,
                                     np.float32, np.float64):
                 imagen = imagen.astype(np.float32)
 
             alto, ancho = imagen.shape
 
-            # OpenCV recibe el tamaño como (ancho, alto)
             imagen_doble = cv2.resize(
                 imagen,
                 (ancho * 2, alto * 2),
@@ -180,7 +165,6 @@ class EstudioDICOM:
 
         self.volumen = np.stack(imagenes, axis=0)
 
-        # Al duplicar filas y columnas, cada píxel representa la mitad de mm
         self.pixel_spacing_escalado = (
             float(self.pixel_spacing[0]) / 2,
             float(self.pixel_spacing[1]) / 2
@@ -188,7 +172,7 @@ class EstudioDICOM:
         self.tamano_voxel_escalado = (
             self.pixel_spacing_escalado[0],
             self.pixel_spacing_escalado[1],
-            self.slice_thickness    # el eje de los cortes no se escala
+            self.slice_thickness
         )
 
         print("Volumen 3D reconstruido correctamente.")
@@ -197,7 +181,6 @@ class EstudioDICOM:
         return True
 
     def corregirAngulo(self, angulo):
-
         if self.volumen is None:
             print("Primero debes reconstruir el volumen.")
             return False
@@ -213,11 +196,7 @@ class EstudioDICOM:
             return False
 
         alto, ancho = self.volumen.shape[1], self.volumen.shape[2]
-
-        # Centro = punto medio de la imagen, como (x, y)
         centro = (ancho / 2, alto / 2)
-
-        # Ángulo positivo = giro antihorario en OpenCV
         matriz_rotacion = cv2.getRotationMatrix2D(centro, angulo, 1.0)
 
         cortes_rotados = []
@@ -228,14 +207,12 @@ class EstudioDICOM:
                 (ancho, alto),
                 flags=cv2.INTER_LINEAR,
                 borderMode=cv2.BORDER_CONSTANT,
-                borderValue=float(corte.min())   # las esquinas nuevas quedan como el fondo
+                borderValue=float(corte.min())
             )
             cortes_rotados.append(rotado)
 
         self.volumen_corregido = np.stack(cortes_rotados, axis=0)
         self.angulo_aplicado = angulo
-
-        # Corte central, útil para visualizar el resultado
         self.imagen_rotada = self.volumen_corregido[self.volumen_corregido.shape[0] // 2]
 
         print("Corrección de ángulo aplicada correctamente.")
@@ -243,8 +220,6 @@ class EstudioDICOM:
         return True
 
     def normalizarImagen(self, numero_corte, carpeta_salida="resultados", prefijo="estudio"):
-
-        # Usar el volumen corregido si existe; si no, el volumen escalado
         base = self.volumen_corregido if self.volumen_corregido is not None else self.volumen
 
         if base is None:
@@ -261,18 +236,15 @@ class EstudioDICOM:
             print("Corte fuera de rango. Valores válidos: 0 a", base.shape[0] - 1)
             return False
 
-        # Copia del volumen para no alterar el original
         self.volumen_copia = base.copy()
         imagen = self.volumen_copia[numero_corte]
 
-        # Normalizar a uint8 (0-255) y ecualizar
         self.imagen_normalizada = cv2.normalize(
             imagen, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U
         )
         self.imagen_ecualizada = cv2.equalizeHist(self.imagen_normalizada)
         self.corte_ecualizado = numero_corte
 
-        # Graficar: imágenes arriba, histogramas abajo
         fig, ejes = plt.subplots(2, 2, figsize=(10, 8))
 
         ejes[0, 0].imshow(self.imagen_normalizada, cmap="gray")
@@ -290,8 +262,6 @@ class EstudioDICOM:
         ejes[1, 1].set_title("Histograma después de ecualizar")
 
         plt.tight_layout()
-
-        # Guardar el gráfico y la imagen ecualizada
         os.makedirs(carpeta_salida, exist_ok=True)
         plt.savefig(os.path.join(carpeta_salida, f"{prefijo}_ecualizacion_grafico.png"), dpi=150)
         cv2.imwrite(os.path.join(carpeta_salida, f"{prefijo}_ecualizada.png"), self.imagen_ecualizada)
@@ -303,17 +273,13 @@ class EstudioDICOM:
         print("Tipo de dato:", self.imagen_ecualizada.dtype)
         return True
 
-
     def seleccionarPlano(self, plano=None, numero_corte=None):
-
-        # Usar el volumen corregido si existe; si no, el escalado
         volumen = self.volumen_corregido if self.volumen_corregido is not None else self.volumen
 
         if volumen is None:
             print("Primero debes cargar el volumen.")
             return False
 
-        # --- Pedir el plano hasta que sea válido ---
         planos_validos = ("transversal", "coronal", "sagital")
 
         if plano is not None:
@@ -324,11 +290,9 @@ class EstudioDICOM:
                 print("Plano no válido. Usa: transversal, coronal o sagital.")
             plano = input("Plano (transversal/coronal/sagital): ").strip().lower()
 
-        # Eje del volumen que recorre los cortes de cada plano
         eje = {"transversal": 0, "coronal": 1, "sagital": 2}[plano]
         maximo = volumen.shape[eje]
 
-        # --- Pedir el corte hasta que sea válido ---
         while True:
             if numero_corte is None:
                 numero_corte = input(
@@ -349,21 +313,20 @@ class EstudioDICOM:
             print(f"Corte fuera de rango. Valores válidos: 0 a {maximo - 1}")
             numero_corte = None
 
-        # Tamaño de píxel escalado (mm) y grosor del corte (mm)
         sp_fila, sp_col = self.pixel_spacing_escalado
         grosor = self.separacion_cortes
 
         if plano == "transversal":
             imagen = volumen[numero_corte, :, :]
             self.aspect_plano = sp_fila / sp_col
-            self.mm_por_pixel = (sp_fila, sp_col)      # (alto, ancho)
+            self.mm_por_pixel = (sp_fila, sp_col)
 
         elif plano == "coronal":
             imagen = volumen[:, numero_corte, :]
             self.aspect_plano = grosor / sp_col
             self.mm_por_pixel = (grosor, sp_col)
 
-        else:  # sagital
+        else:
             imagen = volumen[:, :, numero_corte]
             self.aspect_plano = grosor / sp_fila
             self.mm_por_pixel = (grosor, sp_fila)
@@ -378,7 +341,6 @@ class EstudioDICOM:
         return True
 
     def binarizarImagen(self, umbral=None, segmentar=None):
-
         if self.plano_seleccionado is None:
             print("Primero debes seleccionar un plano.")
             return False
@@ -389,7 +351,6 @@ class EstudioDICOM:
                    print("Opción no válida. Escribe: claro u oscuro.")
             segmentar = input("¿Segmentar zonas claras u oscuras? (claro/oscuro): ").strip().lower()
 
-        # Pedir el umbral hasta que sea válido (0 a 255)
         while True:
             if umbral is None:
                 umbral = input("Umbral (0 a 255): ")
@@ -408,7 +369,6 @@ class EstudioDICOM:
             print("Umbral fuera de rango. Valores válidos: 0 a 255")
             umbral = None
 
-        # Normalizar el plano a uint8 (se reutiliza después para dibujar en RGB)
         self.plano_uint8 = cv2.normalize(
             self.plano_seleccionado,
             None,
@@ -418,9 +378,6 @@ class EstudioDICOM:
             dtype=cv2.CV_8U
         )
 
-        # INV: lo oscuro (huecos) queda en blanco
-        # claro  -> BINARY:     lo que supera el umbral queda en blanco
-        # oscuro -> BINARY_INV: lo que está por debajo del umbral queda en blanco
         tipo = cv2.THRESH_BINARY if segmentar == "claro" else cv2.THRESH_BINARY_INV
         _, self.imagen_binaria = cv2.threshold(self.plano_uint8, umbral, 255, tipo)
         self.umbral_usado = umbral
@@ -431,12 +388,10 @@ class EstudioDICOM:
         return True
 
     def aperturaMorfologica(self, tamano_kernel=None, iteraciones=None):
-
         if self.imagen_binaria is None:
             print("Primero debes binarizar la imagen.")
             return False
 
-        # Pedir el tamaño del kernel hasta que sea válido
         while True:
             if tamano_kernel is None:
                 tamano_kernel = input("Tamaño del kernel (entero mayor que 0): ")
@@ -452,7 +407,6 @@ class EstudioDICOM:
             print("El tamaño del kernel debe ser mayor que cero.")
             tamano_kernel = None
 
-        # Pedir las iteraciones hasta que sean válidas
         while True:
             if iteraciones is None:
                 iteraciones = input("Iteraciones (entero mayor que 0): ")
@@ -468,10 +422,8 @@ class EstudioDICOM:
             print("Las iteraciones deben ser mayores que cero.")
             iteraciones = None
 
-        # Crear el kernel cuadrado
         kernel = np.ones((tamano_kernel, tamano_kernel), np.uint8)
 
-        # Apertura = erosión seguida de dilatación
         self.imagen_apertura = cv2.morphologyEx(
             self.imagen_binaria,
             cv2.MORPH_OPEN,
@@ -487,14 +439,11 @@ class EstudioDICOM:
         print("Iteraciones:", iteraciones)
 
         if cv2.countNonZero(self.imagen_apertura) == 0:
-            print("Aviso: la apertura eliminó todo. Prueba un kernel o "
-                  "unas iteraciones más pequeñas.")
+            print("Aviso: la apertura eliminó todo. Prueba un kernel o unas iteraciones más pequeñas.")
             
         return True
     
     def _reducir_apertura_si_vacia(self):
-        # Si la apertura elimina todo, baja las iteraciones a 1 y luego reduce
-        # el kernel a la mitad hasta que quede algo (con kernel 1 no borra nada).
         k, it = self.kernel_usado, self.iteraciones_usadas
         cambio = False
         while cv2.countNonZero(self.imagen_apertura) == 0:
@@ -517,30 +466,18 @@ class EstudioDICOM:
             print(f"Aviso: la apertura borraba todo; se ajustó a kernel {k} e iteraciones {it}.")
         return True
     
-        #commit 9: Identificar cada componente.
     def identificar_componentes(self, imagen_binaria):
         num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(imagen_binaria, connectivity=8)
         return num_labels, labels, stats, centroids
-    #commit 10: Area en milimetros
+
     def calcular_area_fisica(self, stats, index):
-        # Usa los mm por píxel del plano elegido (ya incluyen el escalado x2
-        # y el grosor/separación de los cortes), así el área es correcta en
-        # los tres planos.
         area_pixeles = stats[index, cv2.CC_STAT_AREA]
         alto_mm, ancho_mm = self.mm_por_pixel
-
         area_mm2 = float(area_pixeles) * alto_mm * ancho_mm
-        return area_mm2, ancho_mm, alto_mm   # (area, mm por px en x, mm por px en y)
-    
-    
-    #commit 11: Solucion al ruido o al fondo, para imagenes limpias
+        return area_mm2, ancho_mm, alto_mm
 
     def identificar_huecos_anatomicos(self, num_labels, stats, min_area=50, max_area=None,
                                       permitir_borde=False):
-        # Descarta el fondo (label 0) y todo componente que toque el borde
-        # de la imagen (aire exterior); de los restantes devuelve el mayor.
-        # Con permitir_borde=True se aceptan los que tocan el borde, salvo
-        # los que ocupan más de la mitad de la imagen (el fondo).
         alto, ancho = self.imagen_apertura.shape
         area_total = alto * ancho
         solo_laterales = self.nombre_plano in ("coronal", "sagital")
@@ -573,11 +510,8 @@ class EstudioDICOM:
 
         return mejor_id
 
-    #commit 12: poner un indicador de lugar y texto de area
-
     def dibujar_etiquetas(self, imagen_original, stats, centroids, id_componente,
                           area_mm2, escribir_texto=True):
-        # Pasa a color (BGR/RGB) para poder dibujar el círculo en color
         if len(imagen_original.shape) == 2:
             img_color = cv2.cvtColor(imagen_original, cv2.COLOR_GRAY2BGR)
         else:
@@ -600,7 +534,6 @@ class EstudioDICOM:
                         cv2.FONT_HERSHEY_SIMPLEX, escala, (0, 255, 0), 2)
 
         return img_color
-    #commit 13: funcion de para recortar
 
     def recortar_region(self, imagen, stats, id_componente, espaciado_x, espaciado_y):
         x = stats[id_componente, cv2.CC_STAT_LEFT]
@@ -608,7 +541,6 @@ class EstudioDICOM:
         w = stats[id_componente, cv2.CC_STAT_WIDTH]
         h = stats[id_componente, cv2.CC_STAT_HEIGHT]
         
-        # Le damos un pequeño borde para que el circulo no quede cortado
         borde = 40
         y1 = max(0, y - borde)
         y2 = min(imagen.shape[0], y + h + borde)
@@ -621,10 +553,10 @@ class EstudioDICOM:
         alto_mm = h * espaciado_y
         
         return recorte, ancho_mm, alto_mm
+
     def graficar_resultado(self, img_anotada, img_apertura_color, recorte,
                            ancho_mm, alto_mm, area_mm2,
                            carpeta_salida="resultados", prefijo="estudio"):
-        # Dimensiones físicas del corte completo
         alto_corte_mm = self.plano_uint8.shape[0] * self.mm_por_pixel[0]
         ancho_corte_mm = self.plano_uint8.shape[1] * self.mm_por_pixel[1]
 
@@ -656,13 +588,11 @@ class EstudioDICOM:
         return ruta
 
     def segmentarHuecos(self, carpeta_salida="resultados", prefijo="estudio"):
-        # Método del punto 6: plano -> binarizar -> apertura -> componentes
-        # -> área en mm² -> círculo -> graficar y guardar.
         if not self.seleccionarPlano():
             return False
         if not self.binarizarImagen():
             return False
-                # Respaldo 1: si el umbral no segmenta nada, se usa Otsu
+
         if cv2.countNonZero(self.imagen_binaria) == 0:
             tipo = cv2.THRESH_BINARY if self.modo_segmentacion == "claro" else cv2.THRESH_BINARY_INV
             umbral_otsu, self.imagen_binaria = cv2.threshold(
@@ -674,14 +604,12 @@ class EstudioDICOM:
         if not self.aperturaMorfologica():
             return False
 
-        # Respaldo 2: si la apertura borra todo, se reducen iteraciones y luego el kernel
         if not self._reducir_apertura_si_vacia():
             print("No hay nada que segmentar en este corte. Prueba otro corte o plano.")
             return False
 
         num_labels, labels, stats, centroids = self.identificar_componentes(self.imagen_apertura)
 
-        # Respaldo 3: si no hay hueco, se relajan los criterios paso a paso
         id_hueco = None
         for min_area, permitir_borde, aviso in (
             (50, False, None),
@@ -704,15 +632,12 @@ class EstudioDICOM:
         area_mm2, esp_x, esp_y = self.calcular_area_fisica(stats, id_hueco)
         self.area_hueco_mm2 = area_mm2
 
-        # Corte uint8 -> color, con círculo y texto del área
         self.imagen_anotada = self.dibujar_etiquetas(
             self.plano_uint8, stats, centroids, id_hueco, area_mm2
         )
-        # Lo mismo sobre la imagen segmentada (como en el ejemplo del enunciado)
         apertura_anotada = self.dibujar_etiquetas(
             self.imagen_apertura, stats, centroids, id_hueco, area_mm2
         )
-        # Recorte sin texto (el texto se muestra en el título de la gráfica)
         sin_texto = self.dibujar_etiquetas(
             self.plano_uint8, stats, centroids, id_hueco, area_mm2,
             escribir_texto=False
@@ -739,7 +664,7 @@ class GestorEstudios:
     def __init__(self, ruta_base="datos"):
         self.ruta_base = ruta_base
         self.estudios_disponibles = self._escanear_directorios()
-        self.estudios_cargados = {}     # nombre -> EstudioDICOM ya cargado
+        self.estudios_cargados = {}
         self.estudio_actual = None
         self.nombre_actual = None
 
@@ -753,7 +678,6 @@ class GestorEstudios:
         return estudios
 
     def seleccionar_estudio(self, nombre_estudio):
-        # Acepta el nombre sin importar mayúsculas/minúsculas
         nombre = next(
             (n for n in self.estudios_disponibles
              if n.lower() == str(nombre_estudio).strip().lower()),
@@ -762,7 +686,6 @@ class GestorEstudios:
         if nombre is None:
             return False
 
-        # Si ya se cargó antes, se reutiliza el objeto
         if nombre in self.estudios_cargados:
             self.estudio_actual = self.estudios_cargados[nombre]
             self.nombre_actual = nombre

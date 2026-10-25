@@ -473,3 +473,53 @@ class EstudioDICOM:
                   "unas iteraciones más pequeñas.")
 
         return True
+    
+class GestorEstudios:
+    #clase para: Administrar varios EstudioDICOM independientes.
+
+    NOMBRES = ("PPMI", "Sarcoma", "T2")
+
+    def __init__(self, carpeta_datos="datos"):
+        self.carpeta_datos = carpeta_datos
+        self.estudios = {}  
+        self.activo = None
+
+    def _resolver_carpeta(self, nombre):
+        # funcion para:Busca datos/nombre sin distinguir mayusculas
+        if not os.path.isdir(self.carpeta_datos):
+            return None
+        for entrada in os.listdir(self.carpeta_datos):
+            ruta = os.path.join(self.carpeta_datos, entrada)
+            if os.path.isdir(ruta) and entrada.lower() == nombre.lower():
+                return ruta
+        return None
+
+    def cargar_estudio(self, nombre):
+        # Crea un EstudioDICOM nuevo, lo carga.
+        ruta = self._resolver_carpeta(nombre)
+        if ruta is None:
+            print(f"No se encontro la carpeta '{nombre}' dentro de '{self.carpeta_datos}'.")
+            return False
+        estudio = EstudioDICOM(ruta, nombre)
+        if not estudio.cargar_dicom():
+            return False
+        self.estudios[nombre] = estudio
+        self.activo = nombre
+        return True
+
+    def cargar_todos(self):
+        return {nombre: self.cargar_estudio(nombre) for nombre in self.NOMBRES}
+
+    def seleccionar(self, nombre):
+        if nombre not in self.estudios:
+            print(f"El estudio '{nombre}' no está cargado.")
+            return False
+        self.activo = nombre
+        return True
+
+    def obtener(self, nombre=None):
+        nombre = nombre or self.activo
+        return self.estudios.get(nombre)
+
+    def nombres_cargados(self):
+        return list(self.estudios.keys())

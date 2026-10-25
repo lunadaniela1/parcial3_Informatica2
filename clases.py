@@ -499,7 +499,7 @@ class EstudioDICOM:
 
         return area_mm2, espaciado_x, espaciado_y
     #commit 11: Solucion al ruido o al fondo, para imagenes limpias
-    
+
     def identificar_huecos_anatomicos(self, num_labels, stats, min_area=500, max_area=15000):
         candidatos = []
         for i in range(1, num_labels):
@@ -511,6 +511,25 @@ class EstudioDICOM:
             return None
             
         return candidatos[0]
+    #commit 12: poner un indicador de lugar y texto de area
+    
+    def dibujar_etiquetas(self, imagen_original, stats, centroids, id_componente, area_mm2):
+        if len(imagen_original.shape) == 2:
+            img_color = cv2.cvtColor(imagen_original, cv2.COLOR_GRAY2BGR)
+        else:
+            img_color = imagen_original.copy()
+            
+        cx, cy = int(centroids[id_componente][0]), int(centroids[id_componente][1])
+        w = stats[id_componente, cv2.CC_STAT_WIDTH]
+        h = stats[id_componente, cv2.CC_STAT_HEIGHT]
+        radio = int(max(w, h) / 2) + 5
+        
+        cv2.circle(img_color, (cx, cy), radio, (0, 0, 255), 2)
+        texto = f"ID:{id_componente} | Area:{area_mm2:.1f}mm2"
+        cv2.putText(img_color, texto, (cx - radio, cy - radio - 10), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+        
+        return img_color
     
 class GestorEstudios:
     #clase para: Administrar varios EstudioDICOM independientes.

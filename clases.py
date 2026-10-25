@@ -477,7 +477,26 @@ class EstudioDICOM:
     def identificar_componentes(self, imagen_binaria):
         num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(imagen_binaria, connectivity=8)
         return num_labels, labels, stats, centroids
-
+    #commit 10: Area en milimetros
+    def calcular_area_fisica(self, stats, index, plano_eje=2):
+        area_pixeles = stats[index, cv2.CC_STAT_AREA]
+        ps = self.metadatos['PixelSpacing']
+        ss = self.metadatos['SpacingBetweenSlices']
+        
+        ajuste = self.factor_redimension
+        
+        if plano_eje == 2:
+            espaciado_x = float(ps[1]) / ajuste
+            espaciado_y = float(ps[0]) / ajuste
+        elif plano_eje == 1:
+            espaciado_x = float(ps[1]) / ajuste
+            espaciado_y = float(ss) / ajuste
+        else:
+            espaciado_x = float(ps[0]) / ajuste
+            espaciado_y = float(ss) / ajuste
+            
+        area_mm2 = area_pixeles * (espaciado_x * espaciado_y)
+        return area_mm2, espaciado_x, espaciado_y
     
 class GestorEstudios:
     #clase para: Administrar varios EstudioDICOM independientes.

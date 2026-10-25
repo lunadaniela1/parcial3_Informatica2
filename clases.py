@@ -532,7 +532,7 @@ class EstudioDICOM:
         return img_color
 
     #commit 13: funcion de para recortar
-    
+
     def recortar_region(self, imagen, stats, id_componente, espaciado_x, espaciado_y):
         x = stats[id_componente, cv2.CC_STAT_LEFT]
         y = stats[id_componente, cv2.CC_STAT_TOP]
@@ -596,3 +596,27 @@ class GestorEstudios:
 
     def nombres_cargados(self):
         return list(self.estudios.keys())
+# commit 14: Clase para gestionar carpetas 
+
+class GestorEstudios:
+    def __init__(self, ruta_base="datos"):
+        self.ruta_base = ruta_base
+        self.estudios_disponibles = self._escanear_directorios()
+        self.estudio_actual = None
+
+    def _escanear_directorios(self):
+        estudios = {}
+        if os.path.exists(self.ruta_base):
+            for nombre in os.listdir(self.ruta_base):
+                ruta_completa = os.path.join(self.ruta_base, nombre)
+                if os.path.isdir(ruta_completa):
+                    estudios[nombre] = ruta_completa
+        return estudios
+
+    def seleccionar_estudio(self, nombre_estudio):
+        if nombre_estudio in self.estudios_disponibles:
+            from clases import EstudioDICOM # Solo si están en el mismo archivo no es necesario, pero asume que EstudioDICOM está arriba
+            self.estudio_actual = EstudioDICOM(self.estudios_disponibles[nombre_estudio])
+            self.estudio_actual.cargar_estudio()
+            return True
+        return False

@@ -473,31 +473,52 @@ class EstudioDICOM:
                   "unas iteraciones más pequeñas.")
             
         return True
+    #commit 15: funciones de procesado de imagenes
+    def obtener_plano(self, eje=2):
+        if self.volumen is None:
+            print("No hay volumen cargado.")
+            return None
+        indice = self.volumen.shape[eje] // 2
+        if eje == 2: return self.volumen[:, :, indice]
+        elif eje == 1: return self.volumen[:, indice, :]
+        else: return self.volumen[indice, :, :]
+
+    def preprocesar_imagen(self, imagen):
+        img_norm = cv2.normalize(imagen, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+        _, img_binaria = cv2.threshold(img_norm, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+        img_binaria = cv2.morphologyEx(img_binaria, cv2.MORPH_OPEN, kernel, iterations=2)
+        return img_norm, img_binaria
+
+    
         #commit 9: Identificar cada componente.
     def identificar_componentes(self, imagen_binaria):
         num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(imagen_binaria, connectivity=8)
         return num_labels, labels, stats, centroids
     #commit 10: Area en milimetros
     def calcular_area_fisica(self, stats, index, plano_eje=2):
+
         area_pixeles = stats[index, cv2.CC_STAT_AREA]
-        ps = self.metadatos['PixelSpacing']
-        ss = self.metadatos['SpacingBetweenSlices']
         
-        ajuste = self.factor_redimension
+        # Usar los metadatos correctos de tu init
+        ps_y, ps_x = self.pixel_spacing[0], self.pixel_spacing[1]
+        ss = self.separacion_cortes
+        ajuste = 2.0  # Por la reconstrucción que duplica el tamaño
         
         if plano_eje == 2:
-            espaciado_x = float(ps[1]) / ajuste
-            espaciado_y = float(ps[0]) / ajuste
+            espaciado_x = float(ps_x) / ajuste
+            espaciado_y = float(ps_y) / ajuste
         elif plano_eje == 1:
-            espaciado_x = float(ps[1]) / ajuste
-            espaciado_y = float(ss) / ajuste
+            espaciado_x = float(ps_x) / ajuste
+            espaciado_y = float(ss)
         else:
-            espaciado_x = float(ps[0]) / ajuste
-            espaciado_y = float(ss) / ajuste
+            espaciado_x = float(ps_y) / ajuste
+            espaciado_y = float(ss)
             
         area_mm2 = area_pixeles * (espaciado_x * espaciado_y)
-
         return area_mm2, espaciado_x, espaciado_y
+    
+    
     #commit 11: Solucion al ruido o al fondo, para imagenes limpias
 
     def identificar_huecos_anatomicos(self, num_labels, stats, min_area=500, max_area=15000):
@@ -547,56 +568,7 @@ class EstudioDICOM:
         
         return recorte, ancho_mm, alto_mm
     
-class GestorEstudios:
-    #clase para: Administrar varios EstudioDICOM independientes.
-
-    NOMBRES = ("PPMI", "Sarcoma", "T2")
-
-    def __init__(self, carpeta_datos="datos"):
-        self.carpeta_datos = carpeta_datos
-        self.estudios = {}  
-        self.activo = None
-
-    def _resolver_carpeta(self, nombre):
-        # funcion para:Busca datos/nombre sin distinguir mayusculas
-        if not os.path.isdir(self.carpeta_datos):
-            return None
-        for entrada in os.listdir(self.carpeta_datos):
-            ruta = os.path.join(self.carpeta_datos, entrada)
-            if os.path.isdir(ruta) and entrada.lower() == nombre.lower():
-                return ruta
-        return None
-
-    def cargar_estudio(self, nombre):
-        # Crea un EstudioDICOM nuevo, lo carga.
-        ruta = self._resolver_carpeta(nombre)
-        if ruta is None:
-            print(f"No se encontro la carpeta '{nombre}' dentro de '{self.carpeta_datos}'.")
-            return False
-        estudio = EstudioDICOM(ruta, nombre)
-        if not estudio.cargar_dicom():
-            return False
-        self.estudios[nombre] = estudio
-        self.activo = nombre
-        return True
-
-    def cargar_todos(self):
-        return {nombre: self.cargar_estudio(nombre) for nombre in self.NOMBRES}
-
-    def seleccionar(self, nombre):
-        if nombre not in self.estudios:
-            print(f"El estudio '{nombre}' no está cargado.")
-            return False
-        self.activo = nombre
-        return True
-
-    def obtener(self, nombre=None):
-        nombre = nombre or self.activo
-        return self.estudios.get(nombre)
-
-    def nombres_cargados(self):
-        return list(self.estudios.keys())
-# commit 14: Clase para gestionar carpetas 
+#cambio de clase de gestor de archivos 
 
 class GestorEstudios:
     def __init__(self, ruta_base="datos"):
@@ -615,8 +587,7 @@ class GestorEstudios:
 
     def seleccionar_estudio(self, nombre_estudio):
         if nombre_estudio in self.estudios_disponibles:
-            from clases import EstudioDICOM # Solo si están en el mismo archivo no es necesario, pero asume que EstudioDICOM está arriba
             self.estudio_actual = EstudioDICOM(self.estudios_disponibles[nombre_estudio])
-            self.estudio_actual.cargar_estudio()
+            self.estudio_actual.cargar_dicom()  # Se usa el nombre correcto de tu función
             return True
         return False

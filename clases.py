@@ -496,7 +496,21 @@ class EstudioDICOM:
             espaciado_y = float(ss) / ajuste
             
         area_mm2 = area_pixeles * (espaciado_x * espaciado_y)
+
         return area_mm2, espaciado_x, espaciado_y
+    #commit 11: Solucion al ruido o al fondo, para imagenes limpias
+    
+    def identificar_huecos_anatomicos(self, num_labels, stats, min_area=500, max_area=15000):
+        candidatos = []
+        for i in range(1, num_labels):
+            area = stats[i, cv2.CC_STAT_AREA]
+            if min_area < area < max_area:
+                candidatos.append(i)
+        
+        if not candidatos:
+            return None
+            
+        return candidatos[0]
     
 class GestorEstudios:
     #clase para: Administrar varios EstudioDICOM independientes.

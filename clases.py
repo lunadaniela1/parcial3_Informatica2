@@ -471,8 +471,13 @@ class EstudioDICOM:
         if cv2.countNonZero(self.imagen_apertura) == 0:
             print("Aviso: la apertura eliminó todo. Prueba un kernel o "
                   "unas iteraciones más pequeñas.")
-
+            
         return True
+        #commit 9: Identificar cada componente.
+    def identificar_componentes(self, imagen_binaria):
+        num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(imagen_binaria, connectivity=8)
+        return num_labels, labels, stats, centroids
+
     
 class GestorEstudios:
     #clase para: Administrar varios EstudioDICOM independientes.

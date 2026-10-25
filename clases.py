@@ -512,7 +512,7 @@ class EstudioDICOM:
             
         return candidatos[0]
     #commit 12: poner un indicador de lugar y texto de area
-    
+
     def dibujar_etiquetas(self, imagen_original, stats, centroids, id_componente, area_mm2):
         if len(imagen_original.shape) == 2:
             img_color = cv2.cvtColor(imagen_original, cv2.COLOR_GRAY2BGR)
@@ -530,6 +530,22 @@ class EstudioDICOM:
                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
         
         return img_color
+
+    #commit 13: funcion de para recortar
+    
+    def recortar_region(self, imagen, stats, id_componente, espaciado_x, espaciado_y):
+        x = stats[id_componente, cv2.CC_STAT_LEFT]
+        y = stats[id_componente, cv2.CC_STAT_TOP]
+        w = stats[id_componente, cv2.CC_STAT_WIDTH]
+        h = stats[id_componente, cv2.CC_STAT_HEIGHT]
+        
+        x, y = max(0, x), max(0, y)
+        recorte = imagen[y:y+h, x:x+w]
+        
+        ancho_mm = w * espaciado_x
+        alto_mm = h * espaciado_y
+        
+        return recorte, ancho_mm, alto_mm
     
 class GestorEstudios:
     #clase para: Administrar varios EstudioDICOM independientes.
